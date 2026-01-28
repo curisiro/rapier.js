@@ -89,23 +89,49 @@ jobs:
           echo "🔹 Building original WASM packages..."
           ./builds/prepare_builds/build_all_projects.sh
 
-      # --- BƯỚC FIX LỖI TSCONFIG (GHI ĐÈ FILE) ---
+      # --- BƯỚC FIX LỖI IMPORT (Copy Artifacts + Install base64-js) ---
       - name: Build Compat Version
         run: |
           echo "🔹 Building Compat packages..."
           cd rapier-compat
           
+          # 1. Cài đặt dependencies (Thêm base64-js)
           npm install
-          npm install --save-dev @types/jest @types/node
+          npm install --save-dev @types/jest @types/node base64-js
           
-          # 1. Clean & Mock Tests
+          # 2. Fix Import: Copy WASM artifacts từ builds/ vào rapier-compat/pkg
+          # Code TS import từ '../pkg/rapier_wasm3d', nên ta phải tạo folder đó
+          echo "Copying WASM artifacts manually..."
+          mkdir -p pkg
+          
+          # Copy 2D artifacts
+          if [ -d "../builds/rapier2d/pkg" ]; then
+             echo "Copying Rapier 2D..."
+             cp -r ../builds/rapier2d/pkg/* ./pkg/
+             # Rename file nếu cần (code cũ import tên rapier_wasm2d nhưng output có thể là rapier2d)
+             if [ -f "./pkg/rapier2d.d.ts" ]; then cp ./pkg/rapier2d.d.ts ./pkg/rapier_wasm2d.d.ts; fi
+             if [ -f "./pkg/rapier2d.js" ]; then cp ./pkg/rapier2d.js ./pkg/rapier_wasm2d.js; fi
+          fi
+          
+          # Copy 3D artifacts
+          if [ -d "../builds/rapier3d/pkg" ]; then
+             echo "Copying Rapier 3D..."
+             cp -r ../builds/rapier3d/pkg/* ./pkg/
+             # Rename file để khớp với import trong src3d/init.ts
+             if [ -f "./pkg/rapier3d.d.ts" ]; then cp ./pkg/rapier3d.d.ts ./pkg/rapier_wasm3d.d.ts; fi
+             if [ -f "./pkg/rapier3d.js" ]; then cp ./pkg/rapier3d.js ./pkg/rapier_wasm3d.js; fi
+          fi
+          
+          # Kiểm tra file đã copy
+          ls -R pkg/
+
+          # 3. Mock Tests (như cũ)
           echo "Cleaning and mocking tests..."
           rm -rf tests
           mkdir tests
           echo "export {};" > tests/dummy.test.ts
 
-          # 2. OVERWRITE tsconfig.json (Quan trọng)
-          # Ghi đè file cấu hình mới để tránh lỗi JSON parse và ép buộc skipLibCheck
+          # 4. Overwrite tsconfig.json (như cũ)
           echo "Overwriting tsconfig.json..."
           cat > tsconfig.json <<EOF
           {
@@ -129,7 +155,7 @@ jobs:
           
           echo "Starting build..."
           npm run build
-      # -------------------------------------------
+      # -------------------------------------------------------------
 
       - name: Publish rapier3d-compat
         env:
@@ -137,6 +163,7 @@ jobs:
         run: |
           echo "🔹 Processing rapier3d-compat..."
           
+          # Tìm folder output
           TARGET_DIR=$(find rapier-compat -type d -name "rapier3d-compat" | grep "gen" | head -n 1)
           
           if [ -z "$TARGET_DIR" ]; then
@@ -162,4 +189,4 @@ jobs:
           npm pkg set version="0.30.1"
           
           npm publish
-          echo "✅ Published $NEW_NAME
+          echo "✅ Published $NEW_NAME @ 0.30.1 successfully!"
