@@ -90,7 +90,7 @@ jobs:
           echo "🔹 Building original WASM packages..."
           ./builds/prepare_builds/build_all_projects.sh
 
-      # --- BƯỚC FIX LỖI TS18003 ---
+      # --- BƯỚC FIX LỖI TSCONFIG ---
       - name: Build Compat Version
         run: |
           echo "🔹 Building Compat packages..."
@@ -99,13 +99,35 @@ jobs:
           npm install
           npm install --save-dev @types/jest
           
-          # Fix: TS18003 (No inputs found)
-          # Thay vì xóa hẳn, ta xóa nội dung cũ và tạo 1 file dummy hợp lệ
+          # 1. Cleaning tests
           echo "Cleaning and mocking tests..."
           rm -rf tests
           mkdir tests
-          # Tạo file dummy để TypeScript có cái mà compile
           echo "export {};" > tests/dummy.test.ts
+
+          # 2. FIX QUAN TRỌNG: Sửa tsconfig.json để bypass lỗi TS2583, TS2304
+          echo "Patching tsconfig.json..."
+          node -e "
+            const fs = require('fs');
+            try {
+              const tsconfig = JSON.parse(fs.readFileSync('tsconfig.json', 'utf8'));
+              
+              // Bật skipLibCheck để bỏ qua lỗi trong node_modules
+              tsconfig.compilerOptions.skipLibCheck = true;
+              
+              // Cập nhật lib lên esnext để hỗ trợ Disposable và AsyncIterableIterator
+              tsconfig.compilerOptions.lib = ['esnext', 'dom', 'dom.iterable'];
+              
+              // (Tùy chọn) Đảm bảo target đủ cao
+              tsconfig.compilerOptions.target = 'es2018';
+
+              fs.writeFileSync('tsconfig.json', JSON.stringify(tsconfig, null, 2));
+              console.log('tsconfig.json patched successfully.');
+            } catch (e) {
+              console.error('Failed to patch tsconfig:', e);
+              process.exit(1);
+            }
+          "
           
           echo "Starting build..."
           npm run build
