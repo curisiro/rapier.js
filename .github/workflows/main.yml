@@ -44,8 +44,8 @@ jobs:
       # 4. Build WASM (3D)
       - name: Build rapier3d wasm
         run: |
-          cd rapier/crates/rapier3d-wasm
-          wasm-pack build \
+          cd rapier/crates/rapier3d
+            wasm-pack build \
             --release \
             --target bundler \
             --out-dir ../../../rapier.js/packages/rapier3d-compat/pkg
