@@ -39,14 +39,13 @@ jobs:
           npm install typescript -g
           if [ -f "package.json" ]; then npm install; fi
 
-      # Bước này tạo ra các folder project và Cargo.toml gốc
+      # 1. Prepare Projects
       - name: Prepare Projects
         run: |
           chmod +x ./builds/prepare_builds/*.sh
           ./builds/prepare_builds/prepare_all_projects.sh
 
-      # --- PHẦN QUAN TRỌNG ĐÃ SỬA ĐỔI ---
-      # Sử dụng Node.js để patch file an toàn hơn sed, xử lý được đa dòng
+      # 2. Patch Cargo.toml (ĐÃ SỬA: Xóa feature wasm-bindgen)
       - name: Patch Cargo.toml (Node.js script)
         uses: actions/github-script@v7
         with:
@@ -54,7 +53,6 @@ jobs:
             const fs = require('fs');
             const path = require('path');
 
-            // Hàm đệ quy tìm tất cả file Cargo.toml
             function findFiles(dir, fileList = []) {
               const files = fs.readdirSync(dir);
               files.forEach(file => {
@@ -71,39 +69,36 @@ jobs:
               return fileList;
             }
 
-            const cargoFiles = findFiles('./builds'); // Chỉ tìm trong folder builds đã generate
+            // Chỉ tìm trong builds/rapier* vì đó là nơi chứa code binding
+            const cargoFiles = findFiles('./builds'); 
             console.log("Found Cargo.toml files:", cargoFiles);
 
             cargoFiles.forEach(file => {
               let content = fs.readFileSync(file, 'utf8');
               
-              // Regex tìm khối rapier dependency (xử lý cả multi-line)
-              // Tìm rapier2d hoặc rapier3d, theo sau là dấu = và khối {}
+              // Regex tìm khối rapier dependency (rapier2d hoặc rapier3d)
               const regex = /(rapier[23]d)\s*=\s*\{[\s\S]*?\}/g;
               
-              // Thay thế bằng git dependency của bạn
-              // Lưu ý: Phải giữ feature "serde-serialize" vì log lỗi cho thấy nó cần thiết
+              // Thay thế: BỎ "wasm-bindgen", chỉ giữ "serde-serialize"
+              // Vì v0.30.1 báo lỗi không có feature wasm-bindgen
               const replacement = (match, p1) => {
-                 return `${p1} = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["wasm-bindgen", "serde-serialize"] }`;
+                 return `${p1} = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["serde-serialize"] }`;
               };
 
               if (regex.test(content)) {
                 console.log(`Patching ${file}...`);
                 const newContent = content.replace(regex, replacement);
                 fs.writeFileSync(file, newContent);
-              } else {
-                console.log(`Skipping ${file} (No rapier dependency found matching pattern)`);
               }
             });
 
-      # --- KẾT THÚC PHẦN SỬA ---
-
+      # 3. Build Original WASM
       - name: Build Original WASM
         run: |
           echo "🔹 Building original WASM packages..."
-          # Script này sẽ gọi cargo build
           ./builds/prepare_builds/build_all_projects.sh
 
+      # 4. Build Compat Version
       - name: Build Compat Version
         run: |
           echo "🔹 Building Compat packages..."
@@ -111,13 +106,14 @@ jobs:
           npm install
           npm run build
 
+      # 5. Publish rapier3d-compat
       - name: Publish rapier3d-compat
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🔹 Processing rapier3d-compat..."
           
-          # Tìm folder output (thường là gen/rapier3d-compat)
+          # Tìm folder output
           TARGET_DIR=$(find rapier-compat -type d -name "rapier3d-compat" | grep "gen" | head -n 1)
           
           if [ -z "$TARGET_DIR" ]; then
@@ -126,7 +122,6 @@ jobs:
           
           if [ -z "$TARGET_DIR" ]; then
             echo "❌ Error: Could not find build output for rapier3d-compat"
-            # Debug: List cấu trúc file để xem nó nằm đâu
             find rapier-compat -maxdepth 4
             exit 1
           fi
