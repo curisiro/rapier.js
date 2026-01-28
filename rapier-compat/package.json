@@ -1,6 +1,6 @@
 {
   "name": "@curisiro/rapier3d-compat",
-  "version": "0.1.0",
+  "version": "0.30.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
