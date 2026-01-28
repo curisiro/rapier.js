@@ -45,7 +45,7 @@ jobs:
           chmod +x ./builds/prepare_builds/*.sh
           ./builds/prepare_builds/prepare_all_projects.sh
 
-      # 2. Patch Cargo.toml (ĐÃ SỬA: Xóa feature wasm-bindgen)
+      # 2. Patch Cargo.toml (ĐÃ SỬA: Thêm feature "debug-render")
       - name: Patch Cargo.toml (Node.js script)
         uses: actions/github-script@v7
         with:
@@ -69,20 +69,17 @@ jobs:
               return fileList;
             }
 
-            // Chỉ tìm trong builds/rapier* vì đó là nơi chứa code binding
             const cargoFiles = findFiles('./builds'); 
             console.log("Found Cargo.toml files:", cargoFiles);
 
             cargoFiles.forEach(file => {
               let content = fs.readFileSync(file, 'utf8');
               
-              // Regex tìm khối rapier dependency (rapier2d hoặc rapier3d)
               const regex = /(rapier[23]d)\s*=\s*\{[\s\S]*?\}/g;
               
-              // Thay thế: BỎ "wasm-bindgen", chỉ giữ "serde-serialize"
-              // Vì v0.30.1 báo lỗi không có feature wasm-bindgen
+              // SỬA CHÍNH TẠI ĐÂY: Thêm "debug-render" vào features
               const replacement = (match, p1) => {
-                 return `${p1} = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["serde-serialize"] }`;
+                 return `${p1} = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["serde-serialize", "debug-render"] }`;
               };
 
               if (regex.test(content)) {
@@ -113,7 +110,7 @@ jobs:
         run: |
           echo "🔹 Processing rapier3d-compat..."
           
-          # Tìm folder output
+          # Tìm folder output (ưu tiên gen/rapier3d-compat)
           TARGET_DIR=$(find rapier-compat -type d -name "rapier3d-compat" | grep "gen" | head -n 1)
           
           if [ -z "$TARGET_DIR" ]; then
