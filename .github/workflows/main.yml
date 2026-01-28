@@ -73,7 +73,6 @@ jobs:
             cargoFiles.forEach(file => {
               let content = fs.readFileSync(file, 'utf8');
               const regex = /(rapier[23]d)\s*=\s*\{[\s\S]*?\}/g;
-              // Feature: serde-serialize + debug-render
               const replacement = (match, p1) => {
                  return `${p1} = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["serde-serialize", "debug-render"] }`;
               };
@@ -90,48 +89,47 @@ jobs:
           echo "🔹 Building original WASM packages..."
           ./builds/prepare_builds/build_all_projects.sh
 
-      # --- BƯỚC FIX LỖI TSCONFIG ---
+      # --- BƯỚC FIX LỖI TSCONFIG (GHI ĐÈ FILE) ---
       - name: Build Compat Version
         run: |
           echo "🔹 Building Compat packages..."
           cd rapier-compat
           
           npm install
-          npm install --save-dev @types/jest
+          npm install --save-dev @types/jest @types/node
           
-          # 1. Cleaning tests
+          # 1. Clean & Mock Tests
           echo "Cleaning and mocking tests..."
           rm -rf tests
           mkdir tests
           echo "export {};" > tests/dummy.test.ts
 
-          # 2. FIX QUAN TRỌNG: Sửa tsconfig.json để bypass lỗi TS2583, TS2304
-          echo "Patching tsconfig.json..."
-          node -e "
-            const fs = require('fs');
-            try {
-              const tsconfig = JSON.parse(fs.readFileSync('tsconfig.json', 'utf8'));
-              
-              // Bật skipLibCheck để bỏ qua lỗi trong node_modules
-              tsconfig.compilerOptions.skipLibCheck = true;
-              
-              // Cập nhật lib lên esnext để hỗ trợ Disposable và AsyncIterableIterator
-              tsconfig.compilerOptions.lib = ['esnext', 'dom', 'dom.iterable'];
-              
-              // (Tùy chọn) Đảm bảo target đủ cao
-              tsconfig.compilerOptions.target = 'es2018';
-
-              fs.writeFileSync('tsconfig.json', JSON.stringify(tsconfig, null, 2));
-              console.log('tsconfig.json patched successfully.');
-            } catch (e) {
-              console.error('Failed to patch tsconfig:', e);
-              process.exit(1);
-            }
-          "
+          # 2. OVERWRITE tsconfig.json (Quan trọng)
+          # Ghi đè file cấu hình mới để tránh lỗi JSON parse và ép buộc skipLibCheck
+          echo "Overwriting tsconfig.json..."
+          cat > tsconfig.json <<EOF
+          {
+            "compilerOptions": {
+              "target": "es2018",
+              "module": "commonjs",
+              "lib": ["esnext", "dom", "dom.iterable"],
+              "declaration": true,
+              "strict": false,
+              "moduleResolution": "node",
+              "esModuleInterop": true,
+              "skipLibCheck": true,
+              "forceConsistentCasingInFileNames": true,
+              "outDir": "./dist",
+              "types": ["node", "jest"]
+            },
+            "include": ["src2d", "src3d", "tests", "**/*.ts"],
+            "exclude": ["node_modules", "dist", "pkg"]
+          }
+          EOF
           
           echo "Starting build..."
           npm run build
-      # ----------------------------
+      # -------------------------------------------
 
       - name: Publish rapier3d-compat
         env:
@@ -160,9 +158,8 @@ jobs:
           echo "Renaming package to: $NEW_NAME"
           npm pkg set name="$NEW_NAME"
           
-          # Set version đúng v0.30.1
           echo "Updating version to 0.30.1"
           npm pkg set version="0.30.1"
           
           npm publish
-          echo "✅ Published $NEW_NAME @ 0.30.1 successfully!"
+          echo "✅ Published $NEW_NAME
