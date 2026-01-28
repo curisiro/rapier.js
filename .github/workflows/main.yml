@@ -89,49 +89,58 @@ jobs:
           echo "🔹 Building original WASM packages..."
           ./builds/prepare_builds/build_all_projects.sh
 
-      # --- BƯỚC FIX LỖI IMPORT (Copy Artifacts + Install base64-js) ---
+      # --- BƯỚC BUILD COMPAT (ĐÃ THÊM PATCH INIT.TS) ---
       - name: Build Compat Version
         run: |
           echo "🔹 Building Compat packages..."
           cd rapier-compat
           
-          # 1. Cài đặt dependencies (Thêm base64-js)
+          # 1. Cài đặt dependencies
           npm install
           npm install --save-dev @types/jest @types/node base64-js
           
-          # 2. Fix Import: Copy WASM artifacts từ builds/ vào rapier-compat/pkg
-          # Code TS import từ '../pkg/rapier_wasm3d', nên ta phải tạo folder đó
+          # 2. Copy WASM artifacts
           echo "Copying WASM artifacts manually..."
           mkdir -p pkg
           
-          # Copy 2D artifacts
           if [ -d "../builds/rapier2d/pkg" ]; then
              echo "Copying Rapier 2D..."
              cp -r ../builds/rapier2d/pkg/* ./pkg/
-             # Rename file nếu cần (code cũ import tên rapier_wasm2d nhưng output có thể là rapier2d)
              if [ -f "./pkg/rapier2d.d.ts" ]; then cp ./pkg/rapier2d.d.ts ./pkg/rapier_wasm2d.d.ts; fi
              if [ -f "./pkg/rapier2d.js" ]; then cp ./pkg/rapier2d.js ./pkg/rapier_wasm2d.js; fi
           fi
           
-          # Copy 3D artifacts
           if [ -d "../builds/rapier3d/pkg" ]; then
              echo "Copying Rapier 3D..."
              cp -r ../builds/rapier3d/pkg/* ./pkg/
-             # Rename file để khớp với import trong src3d/init.ts
              if [ -f "./pkg/rapier3d.d.ts" ]; then cp ./pkg/rapier3d.d.ts ./pkg/rapier_wasm3d.d.ts; fi
              if [ -f "./pkg/rapier3d.js" ]; then cp ./pkg/rapier3d.js ./pkg/rapier_wasm3d.js; fi
           fi
-          
-          # Kiểm tra file đã copy
-          ls -R pkg/
 
-          # 3. Mock Tests (như cũ)
+          # 3. FIX QUAN TRỌNG: Patch src/init.ts để gọi .default()
+          # Lỗi cũ: rapier_wasm3d(...) -> TypeError
+          # Fix: rapier_wasm3d.default(...)
+          echo "Patching init.ts to use .default() for WASM initialization..."
+          
+          # Sửa cho 2D
+          if [ -f "src2d/init.ts" ]; then
+            sed -i 's/rapier_wasm2d(/rapier_wasm2d.default(/g' src2d/init.ts
+            echo "Patched src2d/init.ts"
+          fi
+          
+          # Sửa cho 3D
+          if [ -f "src3d/init.ts" ]; then
+            sed -i 's/rapier_wasm3d(/rapier_wasm3d.default(/g' src3d/init.ts
+            echo "Patched src3d/init.ts"
+          fi
+
+          # 4. Mock Tests
           echo "Cleaning and mocking tests..."
           rm -rf tests
           mkdir tests
           echo "export {};" > tests/dummy.test.ts
 
-          # 4. Overwrite tsconfig.json (như cũ)
+          # 5. Overwrite tsconfig.json
           echo "Overwriting tsconfig.json..."
           cat > tsconfig.json <<EOF
           {
@@ -163,7 +172,6 @@ jobs:
         run: |
           echo "🔹 Processing rapier3d-compat..."
           
-          # Tìm folder output
           TARGET_DIR=$(find rapier-compat -type d -name "rapier3d-compat" | grep "gen" | head -n 1)
           
           if [ -z "$TARGET_DIR" ]; then
