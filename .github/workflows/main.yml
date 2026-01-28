@@ -1,74 +1,135 @@
-name: Publish rapier3d-compat (GitHub Packages)
-
-env:
-  RAPIER_TAG: v0.30.1
+name: Build & Publish Rapier Compat
 
 on:
   push:
-    branches:
-      - master
-    tags:
-      - "v*"
-
+    branches: [ "master" ]
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+  packages: write # Cấp quyền để publish package lên GitHub
 
 jobs:
-  publish:
+  build-and-publish:
     runs-on: ubuntu-latest
-
+    
     steps:
-      # 1. Checkout rapier.js
-      - uses: actions/checkout@v4
-        with:
-          path: rapier.js
+      # 1. Checkout Code
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # 2. Checkout rapier (Rust core)
-      - uses: actions/checkout@v4
-        with:
-          repository: curisiro/rapier
-          ref: ${{ env.RAPIER_TAG }}
-          path: rapier
-
-      # 3. Rust + wasm
-      - uses: dtolnay/rust-toolchain@stable
+      # 2. Cài đặt Rust & Target WASM
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
+      # 3. Cài đặt wasm-pack (Công cụ build Rust sang WASM)
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: 'latest'
 
-      # 4. Build WASM (3D)
-      - name: Build rapier3d wasm
-        run: |
-          cd rapier/crates/rapier3d
-            wasm-pack build \
-            --release \
-            --target bundler \
-            --out-dir ../../../rapier.js/packages/rapier3d-compat/pkg
-
-      # 5. Setup Node (GitHub Packages)
-      - name: Setup Node
+      # 4. Cài đặt Node.js & Cấu hình Registry GitHub
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
-          registry-url: https://npm.pkg.github.com
-          scope: "@curisiro"
+          node-version: '18'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@${{ github.repository_owner }}'
 
-      # 6. Build JS
-      - name: Build rapier3d-compat
+      - name: Install Build Dependencies
         run: |
-          cd rapier.js/packages/rapier3d-compat
-          npm ci
+          npm install typescript -g
+          # Cài dependency gốc nếu có
+          if [ -f "package.json" ]; then npm install; fi
+
+      # 5. Chạy Prepare Script & Patch Version Core
+      - name: Prepare and Patch Rapier Core to v0.30.1
+        run: |
+          chmod +x ./builds/prepare_builds/*.sh
+          
+          # Chạy prepare để sinh ra các file Cargo.toml cần thiết
+          ./builds/prepare_builds/prepare_all_projects.sh
+          
+          echo "🔹 Patching Cargo.toml files to use curisiro/rapier v0.30.1..."
+          
+          # Tìm tất cả file Cargo.toml và thay thế dependency
+          find . -name "Cargo.toml" -type f | while read file; do
+            # Patch cho rapier3d
+            sed -i 's|^rapier3d = .*|rapier3d = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["wasm-bindgen"] }|g' "$file"
+            # Patch cho rapier2d (để tránh lỗi nếu build script check cả 2)
+            sed -i 's|^rapier2d = .*|rapier2d = { git = "https://github.com/curisiro/rapier", tag = "v0.30.1", features = ["wasm-bindgen"] }|g' "$file"
+          done
+          
+          echo "✅ Patch completed."
+
+      # 6. Build WASM gốc (Input cho bước Compat)
+      - name: Build Original WASM
+        run: |
+          echo "🔹 Building original WASM packages..."
+          ./builds/prepare_builds/build_all_projects.sh
+
+      # 7. Build Compat Version (Nhúng WASM vào JS)
+      - name: Build Compat Version
+        run: |
+          echo "🔹 Building Compat packages..."
+          cd rapier-compat
+          npm install
           npm run build
+          # Script này sẽ tạo ra output tại thư mục rapier-compat/gen/ hoặc rapier-compat/pkg/
 
-      # 7. Publish (PRIVATE)
-      - name: Publish to GitHub Packages
-        run: |
-          cd rapier.js/packages/rapier3d-compat
-          npm publish
+      # 8. Publish rapier3d-compat
+      - name: Publish rapier3d-compat
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔹 Processing rapier3d-compat..."
+          
+          # Tìm thư mục chứa package.json của rapier3d-compat vừa build
+          # Thường nằm trong rapier-compat/gen
+          TARGET_DIR=$(find rapier-compat -type d -name "rapier3d-compat" | grep "gen" | head -n 1)
+          
+          if [ -z "$TARGET_DIR" ]; then
+             # Fallback tìm kiếm rộng hơn nếu cấu trúc thay đổi
+             TARGET_DIR=$(find rapier-compat -type d -name "rapier3d-compat" | head -n 1)
+          fi
+          
+          if [ -z "$TARGET_DIR" ]; then
+            echo "❌ Error: Không tìm thấy thư mục build rapier3d-compat"
+            exit 1
+          fi
+          
+          echo "Found build at: $TARGET_DIR"
+          cd $TARGET_DIR
+          
+          # Đổi tên package thành @username/rapier3d-compat
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          NEW_NAME="@$OWNER/rapier3d-compat"
+          
+          echo "Renaming package to: $NEW_NAME"
+          npm pkg set name="$NEW_NAME"
+          
+          # Publish lên GitHub Packages
+          npm publish
+          echo "✅ Published $NEW_NAME successfully!"
+
+      # 9. (Tùy chọn) Publish rapier2d-compat nếu cần
+      - name: Publish rapier2d-compat
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # Không fail workflow nếu không cần 2d
+        run: |
+          echo "🔹 Processing rapier2d-compat..."
+          TARGET_DIR=$(find rapier-compat -type d -name "rapier2d-compat" | grep "gen" | head -n 1)
+          
+          if [ -n "$TARGET_DIR" ]; then
+            cd $TARGET_DIR
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            NEW_NAME="@$OWNER/rapier2d-compat"
+            npm pkg set name="$NEW_NAME"
+            npm publish
+            echo "✅ Published $NEW_NAME successfully!"
+          else
+            echo "⚠️ rapier2d-compat not found, skipping."
+          fi
