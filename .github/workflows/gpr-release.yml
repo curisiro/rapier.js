@@ -51,8 +51,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          
           for PKG_DIR in rapier-compat/builds/*/pkg; do
             echo "Publishing $PKG_DIR..."
             cd "$PKG_DIR"
@@ -61,7 +59,7 @@ jobs:
             npm pkg set repository.url="git+https://github.com/curisiro/rapier.js.git"
             
             # Đổi version
-            npm version prerelease --preid="alpha.${SHORT_SHA}" --no-git-tag-version
+            npm version prerelease --preid="alpha.${GITHUB_SHA}" --no-git-tag-version
             
             npm publish --access public
             cd -
