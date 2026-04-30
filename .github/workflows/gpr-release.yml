@@ -9,8 +9,12 @@ on:
 
 jobs:
   release:
-    # Chỉ chạy publish khi push vào nhánh development, PR chỉ test build chứ không publish
     runs-on: ubuntu-latest
+    # THÊM ĐOẠN NÀY ĐỂ CẤP QUYỀN GHI PACKAGE CHO GITHUB_TOKEN
+    permissions:
+      contents: read
+      packages: write 
+      
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -19,7 +23,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18.x'
-          # Cấu hình registry cho Github Packages
           registry-url: 'https://npm.pkg.github.com/'
           scope: '@curisiro'
 
@@ -32,8 +35,6 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Update Package Scope
-        # Đổi namespace mặc định từ @dimforge sang @curisiro trong cấu hình build
-        # Để đảm bảo xuất bản đúng GPR của tài khoản GitHub curisiro
         run: sed -i "s/@dimforge/@curisiro/g" rapier-compat/rollup.config.js
 
       - name: Prepare Rust projects
@@ -46,23 +47,22 @@ jobs:
           npm run build
 
       - name: Publish Packages (CD Release)
-        # Chỉ tiến hành publish khi merge/push vào development, không chạy cho PRs
         if: github.event_name != 'pull_request'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Lấy 7 ký tự đầu của commit hash
           SHORT_SHA="${GITHUB_SHA::7}"
           
-          # Lặp qua tất cả các thư mục package đã được build ra
           for PKG_DIR in rapier-compat/builds/*/pkg; do
             echo "Publishing $PKG_DIR..."
             cd "$PKG_DIR"
             
-            # Cập nhật version dính kèm mã commit (Ví dụ: 0.12.0 -> 0.12.1-alpha.abcd123.0)
+            # Sửa lại Repository URL thành repo của bạn để Github Packages cho phép publish
+            npm pkg set repository.url="git+https://github.com/curisiro/rapier.js.git"
+            
+            # Đổi version
             npm version prerelease --preid="alpha.${SHORT_SHA}" --no-git-tag-version
             
-            # Đẩy lên GPR
             npm publish --access public
             cd -
           done
