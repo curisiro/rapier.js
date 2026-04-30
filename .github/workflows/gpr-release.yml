@@ -1,0 +1,68 @@
+name: Auto release to GPR
+
+on:
+  push:
+    branches:
+      - development
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  release:
+    # Chỉ chạy publish khi push vào nhánh development, PR chỉ test build chứ không publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+          # Cấu hình registry cho Github Packages
+          registry-url: 'https://npm.pkg.github.com/'
+          scope: '@curisiro'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Update Package Scope
+        # Đổi namespace mặc định từ @dimforge sang @curisiro trong cấu hình build
+        # Để đảm bảo xuất bản đúng GPR của tài khoản GitHub curisiro
+        run: sed -i "s/@dimforge/@curisiro/g" rapier-compat/rollup.config.js
+
+      - name: Prepare Rust projects
+        run: bash ./builds/prepare_builds/prepare_all_projects.sh
+
+      - name: Build Packages
+        run: |
+          cd rapier-compat
+          npm install
+          npm run build
+
+      - name: Publish Packages (CD Release)
+        # Chỉ tiến hành publish khi merge/push vào development, không chạy cho PRs
+        if: github.event_name != 'pull_request'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Lấy 7 ký tự đầu của commit hash
+          SHORT_SHA="${GITHUB_SHA::7}"
+          
+          # Lặp qua tất cả các thư mục package đã được build ra
+          for PKG_DIR in rapier-compat/builds/*/pkg; do
+            echo "Publishing $PKG_DIR..."
+            cd "$PKG_DIR"
+            
+            # Cập nhật version dính kèm mã commit (Ví dụ: 0.12.0 -> 0.12.1-alpha.abcd123.0)
+            npm version prerelease --preid="alpha.${SHORT_SHA}" --no-git-tag-version
+            
+            # Đẩy lên GPR
+            npm publish --access public
+            cd -
+          done
