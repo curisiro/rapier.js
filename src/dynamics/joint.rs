@@ -167,6 +167,30 @@ impl RawGenericJoint {
         Some(Self(joint))
     }
 
+    #[cfg(feature = "dim3")]
+    pub fn generic_advanced(
+        anchor1: &RawVector,
+        anchor2: &RawVector,
+        axis1: &RawVector,
+        axis2: &RawVector,
+        frame1: &RawRotation,
+        frame2: &RawRotation,
+        lockedAxes: u8,
+    ) -> Option<RawGenericJoint> {
+        let axesMask: JointAxesMask = JointAxesMask::from_bits(lockedAxes)?;
+        let ax1 = Unit::try_new(axis1.0, 0.0)?;
+        let ax2 = Unit::try_new(axis2.0, 0.0)?;
+        let pos1 = Isometry::from_parts(anchor1.0.into(), frame1.0);
+        let pos2 = Isometry::from_parts(anchor2.0.into(), frame2.0);
+        let joint: GenericJoint = GenericJointBuilder::new(axesMask)
+            .local_frame1(pos1)
+            .local_frame2(pos2)
+            .local_axis1(ax1)
+            .local_axis2(ax2)
+            .into();
+        Some(Self(joint))
+    }
+
     pub fn spring(
         rest_length: f32,
         stiffness: f32,
@@ -308,6 +332,36 @@ impl RawGenericJoint {
             RevoluteJointBuilder::new(axis)
                 .local_anchor1(anchor1.0.into())
                 .local_anchor2(anchor2.0.into())
+                .into(),
+        ))
+    }
+
+    #[cfg(feature = "dim3")]
+    pub fn revolute_advanced(
+        anchor1: &RawVector,
+        anchor2: &RawVector,
+        axis1: &RawVector,
+        axis2: &RawVector,
+        frame1: &RawRotation,
+        frame2: &RawRotation,
+    ) -> Option<RawGenericJoint> {
+        let ax1 = Unit::try_new(axis1.0, 0.0)?;
+        let ax2 = Unit::try_new(axis2.0, 0.0)?;
+        let pos1 = Isometry::from_parts(anchor1.0.into(), frame1.0);
+        let pos2 = Isometry::from_parts(anchor2.0.into(), frame2.0);
+        
+        let rev_axes = JointAxesMask::LIN_X
+            | JointAxesMask::LIN_Y
+            | JointAxesMask::LIN_Z
+            | JointAxesMask::ANG_Y
+            | JointAxesMask::ANG_Z;
+
+        Some(Self(
+            GenericJointBuilder::new(rev_axes)
+                .local_frame1(pos1)
+                .local_frame2(pos2)
+                .local_axis1(ax1)
+                .local_axis2(ax2)
                 .into(),
         ))
     }

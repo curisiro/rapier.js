@@ -361,6 +361,8 @@ export class JointData {
     anchor1: Vector;
     anchor2: Vector;
     axis: Vector;
+    localAxis1?: Vector;
+    localAxis2?: Vector;
     frame1: Rotation;
     frame2: Rotation;
     jointType: JointType;
@@ -370,6 +372,7 @@ export class JointData {
     stiffness: number;
     damping: number;
     length: number;
+    isAdvanced?: boolean;
 
     private constructor() {}
 
@@ -512,6 +515,31 @@ export class JointData {
     }
 
     /**
+     * Create a new joint descriptor that builds generic joints with advanced parameters.
+     */
+    public static genericAdvanced(
+        anchor1: Vector,
+        anchor2: Vector,
+        localAxis1: Vector,
+        localAxis2: Vector,
+        frame1: Rotation,
+        frame2: Rotation,
+        axesMask: JointAxesMask,
+    ): JointData {
+        let res = new JointData();
+        res.anchor1 = anchor1;
+        res.anchor2 = anchor2;
+        res.localAxis1 = localAxis1;
+        res.localAxis2 = localAxis2;
+        res.frame1 = frame1;
+        res.frame2 = frame2;
+        res.axesMask = axesMask;
+        res.jointType = JointType.Generic;
+        res.isAdvanced = true;
+        return res;
+    }
+
+    /**
      * Create a new joint descriptor that builds spherical joints.
      *
      * A spherical joint allows three relative rotational degrees of freedom
@@ -578,6 +606,29 @@ export class JointData {
         res.anchor2 = anchor2;
         res.axis = axis;
         res.jointType = JointType.Revolute;
+        return res;
+    }
+
+    /**
+     * Create a new joint descriptor that builds revolute joints with advanced parameters.
+     */
+    public static revoluteAdvanced(
+        anchor1: Vector,
+        anchor2: Vector,
+        localAxis1: Vector,
+        localAxis2: Vector,
+        frame1: Rotation,
+        frame2: Rotation,
+    ): JointData {
+        let res = new JointData();
+        res.anchor1 = anchor1;
+        res.anchor2 = anchor2;
+        res.localAxis1 = localAxis1;
+        res.localAxis2 = localAxis2;
+        res.frame1 = frame1;
+        res.frame2 = frame2;
+        res.jointType = JointType.Revolute;
+        res.isAdvanced = true;
         return res;
     }
     // #endif
@@ -651,24 +702,61 @@ export class JointData {
             // #endif
             // #if DIM3
             case JointType.Generic:
-                rawAx = VectorOps.intoRaw(this.axis);
-                // implicit type cast: axesMask is a JointAxesMask bitflag enum,
-                // we're treating it as a u8 on the Rust side
                 let rawAxesMask = this.axesMask;
-                result = RawGenericJoint.generic(
-                    rawA1,
-                    rawA2,
-                    rawAx,
-                    rawAxesMask,
-                );
+                if (this.isAdvanced) {
+                    let rawAx1 = VectorOps.intoRaw(this.localAxis1);
+                    let rawAx2 = VectorOps.intoRaw(this.localAxis2);
+                    let rawFra1 = RotationOps.intoRaw(this.frame1);
+                    let rawFra2 = RotationOps.intoRaw(this.frame2);
+                    result = RawGenericJoint.generic_advanced(
+                        rawA1,
+                        rawA2,
+                        rawAx1,
+                        rawAx2,
+                        rawFra1,
+                        rawFra2,
+                        rawAxesMask,
+                    );
+                    rawAx1.free();
+                    rawAx2.free();
+                    rawFra1.free();
+                    rawFra2.free();
+                } else {
+                    rawAx = VectorOps.intoRaw(this.axis);
+                    result = RawGenericJoint.generic(
+                        rawA1,
+                        rawA2,
+                        rawAx,
+                        rawAxesMask,
+                    );
+                }
                 break;
             case JointType.Spherical:
                 result = RawGenericJoint.spherical(rawA1, rawA2);
                 break;
             case JointType.Revolute:
-                rawAx = VectorOps.intoRaw(this.axis);
-                result = RawGenericJoint.revolute(rawA1, rawA2, rawAx);
-                rawAx.free();
+                if (this.isAdvanced) {
+                    let rawAx1 = VectorOps.intoRaw(this.localAxis1);
+                    let rawAx2 = VectorOps.intoRaw(this.localAxis2);
+                    let rawFra1 = RotationOps.intoRaw(this.frame1);
+                    let rawFra2 = RotationOps.intoRaw(this.frame2);
+                    result = RawGenericJoint.revolute_advanced(
+                        rawA1,
+                        rawA2,
+                        rawAx1,
+                        rawAx2,
+                        rawFra1,
+                        rawFra2,
+                    );
+                    rawAx1.free();
+                    rawAx2.free();
+                    rawFra1.free();
+                    rawFra2.free();
+                } else {
+                    rawAx = VectorOps.intoRaw(this.axis);
+                    result = RawGenericJoint.revolute(rawA1, rawA2, rawAx);
+                    rawAx.free();
+                }
                 break;
             // #endif
         }
